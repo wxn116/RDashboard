@@ -1,0 +1,216 @@
+---
+title: "Spend Analytics GL Data"
+author: "Wang, Xiaoning"
+output: 
+  flexdashboard::flex_dashboard:
+    source_code: embed
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(readr)
+library(tidyverse)
+library(lubridate)
+library(plotly)
+library(knitr)
+library(DT)
+library(leaflet)
+
+
+source('getGLdata.R', local=environment())
+
+```
+
+Visualizations {data-icon="fa-signal"}
+===================================== 
+
+Inputs {.sidebar}
+-----------------------------------------------------------------------
+```{r}
+selectInput("Segment", label="Segment", choice = c("All", levels(myGL$Segment)), selected = "All" )
+
+sliderInput(inputId = "Date", label = "Select Date Period",
+                  min = min(myGL$Date), max = max(myGL$Date),
+                  value = c(as.Date("2016-01-01"), as.Date("2016-12-31")),
+                  timeFormat="%Y-%m-%d")
+
+
+filtered_data <- reactive({
+  data <- myGL
+  if (input$Segment != "All") {
+      data <- subset(
+        data,
+        Segment == input$Segment
+      )
+  }
+  data <- subset(
+      data,
+      Date >= input$Date[1] & Date <= input$Date[2]
+    )
+  data
+})
+```
+
+column 1
+-----------------------------------------------------------------------
+
+### Bar
+```{r}
+station_gg <- reactive({
+  filtered_data() %>%
+  group_by(Segment,Time) %>%
+  summarise(Amount = sum(Amount)) %>%
+  ggplot(aes(x=Time,y= log(Amount), fill=Segment))+
+  geom_bar(stat="identity")
+
+})
+                
+renderPlotly({station_gg()})
+
+```
+
+### Total Spend in USA
+```{r}
+usa_gg <- reactive({
+  subset(filtered_data(),!is.na(Latitude)) %>%
+  group_by(Latitude,Longitude,State) %>%
+  summarise(Amount = sum(Amount)) %>%
+  leaflet() %>%
+  addTiles() %>%  
+  addCircles(lng = ~Longitude, lat = ~Latitude, weight = 1,
+             radius = ~sqrt(Amount)*2 , 
+             label = ~paste("State:", State,"Amount:",paste("$",format(Amount, big.mark=","),sep="")))
+
+})
+
+renderLeaflet({usa_gg()})
+
+```
+
+column 2
+-----------------------------------------------------------------
+### Trend
+```{r}
+station_gg2 <- reactive({
+  filtered_data() %>%
+  group_by(Time) %>%
+  summarise(Amount = sum(Amount)) %>% 
+  ggplot(aes(x=Time, y=log(Amount))) +
+  geom_point(colour="grey60") +
+  stat_smooth(method = 'loess')+
+  geom_rug()
+
+})
+                
+renderPlotly({station_gg2()})
+```
+
+### Box
+```{r}
+
+station_gg3 <- reactive({
+  filtered_data() %>%
+      group_by (Segment,Time) %>%
+      summarise(Amount=sum(Amount))  %>%
+      ggplot(aes(x=Segment, y=log(Amount))) + 
+      geom_boxplot(fill="plum")+
+      labs(title="Box plot - Log(spend) by Segment")
+  })
+
+renderPlotly({station_gg3()})
+```
+
+
+Visualizations2 {data-orientation=rows data-icon="fa-signal"}
+======================================== 
+row 1
+----------------------------------------
+### Bar2
+```{r}
+station_gg <- reactive({
+  filtered_data() %>%
+  group_by(Segment,Time) %>%
+  summarise(Amount = sum(Amount)) %>%
+  ggplot(aes(x=Time,y= log(Amount), fill=Segment))+
+  geom_bar(stat="identity")
+
+})
+                
+renderPlotly({station_gg()})
+
+```
+
+### Area2
+```{r}
+station_gg1 <- reactive({
+  filtered_data() %>%
+  group_by(Time, Segment) %>%
+  summarise(Amount = sum(Amount)) %>% 
+  ggplot(aes(x=Time,y=Amount, fill=Segment)) + 
+  geom_area() + 
+  scale_fill_brewer(palette="Oranges")
+
+})
+                
+renderPlotly({station_gg1()})
+
+```
+
+
+row 2
+----------------------------------------
+### Trend2
+```{r}
+station_gg2 <- reactive({
+  filtered_data() %>%
+  group_by(Time) %>%
+  summarise(Amount = sum(Amount)) %>% 
+  ggplot(aes(x=Time, y=log(Amount))) +
+  geom_point(colour="grey60") +
+  stat_smooth(method = 'loess')+
+  geom_rug()
+
+})
+                
+renderPlotly({station_gg2()})
+```
+
+### Density
+```{r}
+station_gg4 <- reactive({
+  filtered_data() %>%
+  group_by(Time, Segment) %>%
+  summarise(Amount = sum(Amount)) %>% 
+  ggplot(aes(x=Time))+
+  geom_density(aes(fill= Segment),alpha=0.8)  
+
+})
+                
+renderPlotly({station_gg4()})
+
+```
+
+Tables {data-orientation=rows data-icon="fa-table"}
+===================================== 
+### Data List
+
+```{r}
+
+renderDataTable({
+  datatable(filtered_data(), 
+                           extensions = 'Buttons', options = list(
+                           deferRender = FALSE,
+                           dom = 'Bfrtip',
+                           buttons = 
+                                  list('copy', 'print', list(
+                                                        extend = 'collection',
+                                                        buttons = c('csv', 'excel', 'pdf'),
+                                                        text = 'Download'
+                                                        )
+                                    )
+                          )
+  )
+})
+
+```
